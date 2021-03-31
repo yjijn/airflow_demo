@@ -1,0 +1,120 @@
+###################
+# airflow初始化
+安装好Airflow，第一次运行 airflow initdb 之后，会在Airflow文件夹下面产生一个airflow.cfg文件，这个就是基础配置文件。我们以这个基础文件作为模板来修改成为我们需要的配置文件。以下的操作都是找到对应的配置字段，修改其字段内容。
+
+修改默认时区：default_timezone = Asia/Shanghai，
+说明：修改时区之后，Airflow前端页面仍旧会使用UTC时区显示，但是配合主机/容器的时区，这样我们在写dag任务执行时间的时候就不需要转换时区了。
+
+修改执行器类型：executor = CeleryExecutor
+
+不加载范例dag：load_example = False
+
+不让同个dag并行操作：max_active_runs_per_dag = 1，
+说明：在ETL过程中，还是线性执行会比较好控制，如果里面需要批量操作，可以在ETL的具体处理过程中加入多线程或者多进程方式执行，不要在dag中体现
+
+最高的dag并发数量：dag_concurrency = 16，
+说明：一般配置成服务器的CPU核数，默认16也没问题。
+
+最高的任务并发数量：worker_concurrency = 16，
+说明：CeleryExecutor在Airflow的worker线程中执行的，这里配置的是启动多少个worker
+
+数据库配置：sql_alchemy_conn = mysql+mysqldb://root:csr123@172.24.3.61:3306/airflow，
+说明：我们一般是用MySQL来配合Airflow的运行
+
+Celery Broker：broker_url = redis://:password@127.0.0.1:6379/0，
+说明：默认配置中两个redis配置被分到两个redis区，我们也照做吧。
+
+Celery Result backend：result_backend = redis://:password@127.0.0.1:6379/1，
+说明：默认配置中两个redis配置被分到两个redis区，我们也照做吧。
+
+
+
+######################
+# airflow修改时区到本地时区
+1、在airflow家目录下修改airflow.cfg，设置
+ default_timezone = Asia/Shanghai
+
+2、进入airflow包的安装位置,也就是site-packages的位置,以下修改文件均为相对位置
+# 这我安装airflow包的位置(大家自行参考)
+cd /root/.virtualenvs/af/lib/python3.4/site-packages/ 
+
+3、修改airflow/utils/timezone.py
+
+3.1 在 utc = pendulum.timezone(‘UTC’) 这行(第27行)代码下添加,
+from airflow import configuration as conf
+try:
+	tz = conf.get("core", "default_timezone")
+	if tz == "system":
+		utc = pendulum.local_timezone()
+	else:
+		utc = pendulum.timezone(tz)
+except Exception:
+	pass
+
+3.2 修改utcnow()函数 (在第69行)
+原代码 d = dt.datetime.utcnow() 
+修改为 d = dt.datetime.now()
+
+4、修改airflow/utils/sqlalchemy.py
+在utc = pendulum.timezone(‘UTC’) 这行(第37行)代码下添加
+from airflow import configuration as conf
+try:
+	tz = conf.get("core", "default_timezone")
+	if tz == "system":
+		utc = pendulum.local_timezone()
+	else:
+		utc = pendulum.timezone(tz)
+except Exception:
+	pass
+5、注释airflow/utils/sqlalchemy.py中的cursor.execute(“SET time_zone = ‘+00:00’”) (第124行)
+
+
+6、修改airflow/www/templates/admin/master.html(第31行)
+把代码 var UTCseconds = (x.getTime() + x.getTimezoneOffset()*60*1000); 
+改为 var UTCseconds = x.getTime();
+
+把代码 "timeFormat":"H:i:s %UTC%",
+改为  "timeFormat":"H:i:s",
+
+最后重启airflow-webserver即可
+
+###########
+# airflow
+airflow worker 报错：If you really want to continue then you have to set the C_FORCE_ROOT
+environment variable (but please think about this before you do).
+解决办法：
+强制celery worker运行采用root模式
+export C_FORCE_ROOT=True
+
+
+####################
+# airflow启动scheduler 脚本, 放在airflow.cfg同级目录
+#scheduler_monitor.sh
+#!/bin/bash
+while true; do
+    if
+        ps -ef |grep scheduler | grep -v "grep"  
+    then
+        echo ">>>>running it"
+    else
+        airflow scheduler
+        date >> scheduler_death.log 
+    fi
+    sleep 5
+done
+
+
+###############
+# airflow启动流程
+airflow webserver -D # —D 为后台运行
+
+airflow scheduler -D
+
+airflow worker -D
+
+
+##################
+# 删除dag
+airflow delete_dag my_dag_id
+or 
+curl -X "DELETE" http://127.0.0.1:8080/api/experimental/dags/my_dag_id
