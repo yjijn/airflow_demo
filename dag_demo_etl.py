@@ -11,10 +11,10 @@ from utils.utils_etl import gen_json_time
 # you can override them on a per-task basis during operator initialization
 
 default_args = {
-    'owner': 'test',
+    'owner': 'yjijn',
     'depends_on_past': False,
     'start_date': datetime.now() + timedelta(days=-1),  # 必须大于schedule_interval三倍
-    'email': ['123456@qq.com'],
+    'email': ['1*******@**.com'],
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
